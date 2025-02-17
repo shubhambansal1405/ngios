@@ -1,0 +1,316 @@
+Setup Nagios Server 
+Ubuntu 18.04 and above
+
+STEP -1 Update & Upgrade
+
+
+    apt-get update -y
+    apt-get upgrade -y
+STEP -2 Install All required Dependencies
+
+
+    apt-get install autoconf bc gawk dc build-essential gcc libc6 make wget unzip apache2 php libapache2-mod-php libgd-dev libmcrypt-dev make libssl-dev snmp libnet-snmp-perl gettext -y
+STEP -3 Download Install and Configure Nagios Servers
+
+
+    wget https://assets.nagios.com/downloads/nagioscore/releases/nagios-4.4.6.tar.gz
+    tar -xvzf nagios-4.4.6.tar.gz
+    cd nagios-4.4.6
+    ./configure --with-httpd-conf=/etc/apache2/sites-enabled
+    make all
+    make install-groups-users
+    usermod -a -G nagios www-data
+    make install
+    make install-daemoninit
+    make install-commandmode
+    make install-config
+    make install-webconf
+    a2enmod rewrite cgi
+    systemctl restart apache2
+STEP -4 GIVE suitable Passwrd so that u can remember
+
+
+    htpasswd -c /usr/local/nagios/etc/htpasswd.users nagiosadmin
+
+NOTE: give password that u remember
+
+STEP -5 Install nagios plugins and configure the files accordingly
+
+
+    apt-get install monitoring-plugins nagios-nrpe-plugin -y
+    mkdir -p /usr/local/nagios/etc/servers
+
+
+    nano /usr/local/nagios/etc/nagios.cfg
+
+Note:uncomment “cfg_dir=/usr/local/nagios/etc/servers"
+
+
+    nano /usr/local/nagios/etc/resource.cfg
+
+Note: replace this line "$USER1$=/usr/lib/nagios/plugins"
+
+
+    nano /usr/local/nagios/etc/objects/contacts.cfg
+
+Note: change email
+
+
+    nano /usr/local/nagios/etc/objects/commands.cfg 
+
+Note: add at the end 
+
+
+    define command {
+    command_name check_nrpe
+    command_line $USER1$/check_nrpe -H $HOSTADDRESS$ -c $ARG1$
+    }
+    define command {
+    command_name check_mem
+    command_line $USER1$/check_nrpe -H $HOSTADDRESS$ -c memory
+    }
+
+
+
+STEP -6 Start Services & Restart 
+
+
+    systemctl start nagios
+    systemctl enable nagios
+    systemctl restart apache2
+
+
+STEP -7 Configure Client On Server
+
+
+    nano /usr/local/nagios/etc/servers/nagiosclient.cfg
+
+Note: add the following lines and change host name and enter client ip address
+
+
+    define host {
+            use                          linux-server
+            host_name                    nagiosclient
+            alias                        Ubuntu Host
+            address                      client ip add
+            register                     1
+    }
+    
+    define service {
+          host_name                       nagiosclient
+          service_description             PING
+    #      check_command                   check_nrpe!check_ping
+          check_command                   check_ping!100.0,20%!500.0,60%
+          max_check_attempts              2
+          check_interval                  2
+          retry_interval                  2
+          check_period                    24x7
+          check_freshness                 1
+          contact_groups                  admins
+          notification_interval           2
+          notification_period             24x7
+          notifications_enabled           1
+          register                        1
+    }
+    
+    define service {
+          host_name                       nagiosclient
+          service_description             Check Users
+          check_command                   check_nrpe!check_users
+          max_check_attempts              2
+          check_interval                  2
+          retry_interval                  2
+          check_period                    24x7
+          check_freshness                 1
+          contact_groups                  admins
+          notification_interval           2
+          notification_period             24x7
+          notifications_enabled           1
+          register                        1
+    }
+    
+    
+    define service {
+          host_name                       nagiosclient
+          service_description             Check Root / Disk
+          check_command                   check_nrpe!check_root
+          max_check_attempts              2
+          check_interval                  2
+          retry_interval                  2
+          check_period                    24x7
+          check_freshness                 1
+          contact_groups                  admins
+          notification_interval           2
+          notification_period             24x7
+          notifications_enabled           1
+          register                        1
+    }
+    
+    
+    define service {
+            use                     generic-service
+            host_name               nagiosclient
+            service_description     HTTP
+            check_command           check_http      
+            notifications_enabled   0
+    }
+    
+    
+    define service {
+            use                     generic-service
+            host_name               nagiosclient
+            service_description     SSH
+            check_command           check_ssh
+            notifications_enabled   0
+    }
+    
+    
+    define service {
+         use                           generic-service
+         host_name                     nagiosclient
+         service_description           CPU Load
+         check_command                 check_nrpe!check_load
+         notifications_enabled         0
+    }
+    
+    define service {
+         use                           generic-service
+         host_name                     nagiosclient
+         service_description           check swap
+         check_command                 check_nrpe!check_swap
+         notifications_enabled         0
+    }
+    
+    define service {
+            use                  generic-service
+            host_name            nagiosclient
+            service_description  check_MySQL
+            check_command        check_nrpe!check_mysql
+    }
+    
+    
+    define service {
+            use                           generic-service
+            host_name                     nagiosclient
+            service_description           Procs
+            check_command                 check_nrpe!check_procs   
+    }
+    
+    
+    define service {
+            use                           generic-service
+            host_name                     nagiosclient
+            service_description           Memory 
+            check_command                 check_nrpe!check_mem
+    }
+    
+    define service {
+            use                           generic-service
+            host_name                     nagiosclient
+            service_description           Apache Server
+            check_command                 check_tcp!80
+    }
+
+
+STEP -8 Restart services
+
+
+    systemctl restart nagios
+    systemctl restart apache2
+
+
+STEP -9 Install Dependencies and Configure Email Alerts
+
+
+    apt-get install postfix libsasl2-2 ca-certificates libsasl2-modules -y
+    apt install mailutils -y
+
+
+- Configure SMTP
+    nano /etc/postfix/main.cf
+
+Note: Add the following lines and modify relay host
+
+    relayhost = [smtp.gmail.com]:587
+    
+    smtp_sasl_auth_enable = yes
+    smtp_sasl_password_maps = hash:/etc/postfix/sasl_passwd
+    smtp_sasl_security_options = noanonymous
+    smtp_tls_CAfile = /etc/postfix/cacert.pem
+    smtp_use_tls = yes
+
+
+- Introduce ID and Password 
+    nano /etc/postfix/sasl_passwd
+
+Note: Generate password in accounts.gmail settings and create a user by enabling 2 step verification and copy the password 
+
+    [smtp.gmail.com]:587 (Enter your Email):(Enter password generated)
+
+
+- Change permissions and add crt
+    chmod 600 /etc/postfix/sasl_passwd
+    postmap /etc/postfix/sasl_passwd
+    chmod 600 /etc/postfix/sasl_passwd.db
+    cd /etc/ssl/certs
+    ls
+
+Note: find a pem file with root_CA and prioritize if it starts with 't’
+
+    cat TWCA_Global_Root_CA.pem | tee -a /etc/postfix/cacert.pem
+
+
+- Restart and check whether email is working 
+    systemctl restart postfix
+    echo "hey bro how are u " | mail -s "hehehhehehehehehhehehhe" Enteryourmail
+
+
+- Configure Nagios to send Email Alerts
+    nano /usr/local/nagios/etc/objects/contacts.cfg
+
+Note: Add these services under contact
+
+        service_notification_period    24x7
+        service_notification_options   w,u,c,r,f,s
+        service_notification_commands  notify-service-by-email
+        host_notification_period       24x7
+        host_notification_options      d,u,r,f,s
+        host_notification_commands     notify-host-by-email
+
+
+    nano /usr/local/nagios/etc/objects/commands.cfg
+
+Note: Correct mail utility 
+
+    replace /bin/mail
+    with /usr/bin/mailx
+    under notify-host-by-email & notify-service-by-email
+
+
+    /usr/local/nagios/etc/servers/nagiosclient.cfg
+
+Note: Add lines under Define host & Define service
+
+    Under Define host
+    
+       notifications_enabled        1
+       notification_period          24x7
+       notification_options         d,u,r,f,s
+       notification_interval        120
+       contact_groups               admins
+       contacts                     nagiosadmin
+    
+    Under Define service
+    
+       notifications_enabled        1
+       notification_period          24x7
+       notification_options         w,u,c,r,f,s
+       notification_interval        120
+
+
+Final Step 
+    sudo systemctl restart nagios
+    sudo systemctl restart apache2
+
+
+~Written by Shubham Bansal
